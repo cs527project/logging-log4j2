@@ -35,8 +35,7 @@ commands:
               mod="${f%%/target/*}"; mod="${mod##*/}"
               out="$HOME/test-results/junit/${mod}__$(basename "$f")"
 
-              # 0) Re-root cleanly to the <testsuite> node (avoid brittle awk clipping)
-              # If there's no testsuite, skip early.
+              # 0) Re-root to <testsuite>
               if ! xmlstarlet sel -t -c '/testsuite' "$f" > "${f}.rooted" 2>/dev/null; then
                 echo "No <testsuite> root; skipping: $f"
                 skipped=$((skipped+1))
@@ -44,7 +43,7 @@ commands:
               fi
               mv "${f}.rooted" "$f"
 
-              # 1) Drop CircleCI-unsupported elements
+              # 1) Drop unsupported elements
               xmlstarlet ed -P -L \
                 -d '//*[local-name()="rerunFailure"]' \
                 -d '//*[local-name()="rerunError"]' \
@@ -52,27 +51,26 @@ commands:
                 -d '//*[local-name()="flakyError"]' \
                 "$f" || true
 
-              # 2) Remove noisy streams (can be huge)
+              # 2) Remove system-out/err
               xmlstarlet ed -P -L -d '//system-out' -d '//system-err' "$f" || true
 
-              # 3) Trim gigantic failure/error text bodies to keep libxml/uploader happy
-              # (keep first 200k chars — adjust if you like)
+              # 3) Trim huge failure/error text
               xmlstarlet ed -P -L \
                 -u '//failure/text()' -x 'substring(.,1,200000)' \
                 -u '//error/text()' -x 'substring(.,1,200000)' \
                 "$f" || true
 
-              # 4) Pretty-print to normalize and validate well-formedness
+              # 4) Pretty-print
               if ! xmlstarlet fo "$f" > "${f}.fmt" 2>/dev/null; then
-                echo "xmlstarlet could not format (likely still invalid); skipping: $f"
+                echo "xmlstarlet could not format; skipping: $f"
                 skipped=$((skipped+1))
                 continue
               fi
               mv "${f}.fmt" "$f"
 
-              # 5) Final sanity check: must be well-formed and have a testsuite root
+              # 5) Final sanity
               if xmlstarlet val -e "$f" >/dev/null 2>&1 && \
-                grep -q '<testsuite' "$f" && grep -q '</testsuite>' "$f"; then
+                 grep -q '<testsuite' "$f" && grep -q '</testsuite>' "$f"; then
                 cp "$f" "$out"
                 kept=$((kept+1))
               else
@@ -90,16 +88,53 @@ jobs:
     executor: jdk-17
     working_directory: ~/project
     steps:
+      # --- Option A: Use an Additional SSH Key (recommended) ---
+      # 1) Add your private key in Project Settings → SSH Keys → Additional SSH Keys (host: github.com)
+      # 2) Put its fingerprint below. If you skip this, we'll fall back to HTTPS.
+      - add_ssh_keys:
+          fingerprints:
+            # - "aa:bb:cc:dd:ee:ff:..."   # <-- paste your fingerprint or leave commented
+
+      # Fail fast if CircleCI created an empty checkout key (common cause of your error)
+      - run:
+          name: Detect empty checkout key (debug)
+          command: |
+            set -e
+            if [ -f "$HOME/.ssh/id_rsa" ] && [ ! -s "$HOME/.ssh/id_rsa" ]; then
+              echo "Detected zero-length ~/.ssh/id_rsa from 'checkout' key. Will prefer HTTPS fallback."
+            fi
+
+      # --- Option B: Force HTTPS for GitHub (works for public repos; add token for private) ---
+      # If GITHUB_TOKEN is set (contents:read), we'll use it automatically.
+      - run:
+          name: Prefer HTTPS over SSH for GitHub (with optional token)
+          command: |
+            set -eu
+            # Rewrite ssh URLs (git@github.com:) to https://github.com/
+            git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+            git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+            # If a token is provided, inject it for private repos
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+              echo "Configured HTTPS with GITHUB_TOKEN for private access."
+            else
+              echo "No GITHUB_TOKEN set; assuming repo is public or SSH key present."
+            fi
+
       - checkout
+
       - run:
           name: Compute Maven cache key
           command: |
             find . -name 'pom.xml' -o -name '*.gradle*' -o -name 'gradlew*' \
             | sort | xargs cat > /tmp/MVN_CACHE_KEY
+
       - restore_cache:
           keys:
             - mvn2-{{ checksum "/tmp/MVN_CACHE_KEY" }}
             - mvn2-
+
       - run:
           name: Build & run unit tests (JDK 17; skip ITs, Java 8 & Docker)
           command: |
@@ -112,7 +147,7 @@ jobs:
               -Dsurefire.printSummary=true \
               -P '!java8-tests,!docker' \
               test
-      # Sanitize AFTER building & testing
+
       - sanitize_junit
 
 workflows:
