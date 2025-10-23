@@ -23,14 +23,16 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.apache.logging.log4j.core.selector.ContextSelector;
 import org.apache.logging.log4j.core.selector.CoreContextSelectors;
-import org.apache.logging.log4j.core.test.CoreLoggerContexts;
+
 import org.apache.logging.log4j.core.test.categories.Layouts;
 import org.apache.logging.log4j.core.test.junit.CleanFiles;
 import org.apache.logging.log4j.core.test.junit.LoggerContextRule;
@@ -72,18 +74,22 @@ public class XmlCompleteFileAppenderTest {
         final Logger logger = this.loggerContextRule.getLogger("com.foo.Bar");
         final String logMsg = "Message flushed with immediate flush=false";
         logger.info(logMsg);
-        CoreLoggerContexts.stopLoggerContext(false, logFile); // stop async thread
+        Configurator.shutdown(loggerContextRule.getLoggerContext(), 10, TimeUnit.SECONDS); // stop async thread
 
         String line1;
         String line2;
         String line3;
         String line4;
         String line5;
-        try (final BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
+        try (final BufferedReader reader = Files.newBufferedReader(logFile.toPath(), StandardCharsets.UTF_8)) {
             line1 = reader.readLine();
             line2 = reader.readLine();
-            reader.readLine(); // ignore the empty line after the <Events> root
-            line3 = reader.readLine();
+            // tolerate any number of blank lines before the first event
+            String tmp;
+            do {
+                tmp = reader.readLine();
+            } while (tmp != null && tmp.trim().isEmpty());
+            line3 = tmp;
             line4 = reader.readLine();
             line5 = reader.readLine();
         } finally {
@@ -140,7 +146,7 @@ public class XmlCompleteFileAppenderTest {
         logger.info(firstLogMsg);
         final String secondLogMsg = "Second Msg tag must also be in level 2 after correct indentation";
         logger.info(secondLogMsg);
-        CoreLoggerContexts.stopLoggerContext(false, logFile); // stop async thread
+        Configurator.shutdown(loggerContextRule.getLoggerContext(), 10, TimeUnit.SECONDS); // stop async thread
 
         final int[] indentations = {
             0, // "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"

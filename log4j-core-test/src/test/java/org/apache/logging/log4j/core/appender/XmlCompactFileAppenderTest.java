@@ -23,7 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.ConfigurationFactory;
@@ -53,7 +54,7 @@ class XmlCompactFileAppenderTest {
         CoreLoggerContexts.stopLoggerContext(false, file); // stop async thread
 
         String line1;
-        try (final BufferedReader reader = new BufferedReader(new FileReader(file))) {
+        try (final BufferedReader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
             line1 = reader.readLine();
         } finally {
             file.delete();
