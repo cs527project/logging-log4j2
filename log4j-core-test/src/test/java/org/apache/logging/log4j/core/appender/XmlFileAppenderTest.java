@@ -55,19 +55,28 @@ class XmlFileAppenderTest {
         final List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
         file.delete();
 
-        final String[] expect = {
-            "", // ? unsure why initial empty line...
-            "<Event ", //
-            "<Instant epochSecond=", //
-            logMsg, //
-            "</Event>", //
-        };
-
-        for (int i = 0; i < expect.length; i++) {
-            assertTrue(
-                    lines.get(i).contains(expect[i]),
-                    "Expected line " + i + " to contain " + expect[i] + " but got: " + lines.get(i));
+        int idx = 0;
+        while (idx < lines.size() && lines.get(idx).trim().isEmpty()) {
+            idx++;
         }
+        assertTrue(idx < lines.size(), "No content lines found in log file");
+        assertTrue(lines.size() >= idx + 4, "Unexpected log content length");
+
+        assertTrue(
+                lines.get(idx).contains("<Event "),
+                "Expected first event line to contain <Event but got: " + lines.get(idx));
+
+        assertTrue(
+                lines.get(idx + 1).contains("<Instant epochSecond="),
+                "Expected instant line to contain <Instant epochSecond= but got: " + lines.get(idx + 1));
+
+        assertTrue(
+                lines.get(idx + 2).contains(logMsg),
+                "Expected message line to contain the log message but got: " + lines.get(idx + 2));
+
+        assertTrue(
+                lines.get(idx + 3).contains("</Event>"),
+                "Expected closing event tag but got: " + lines.get(idx + 3));
 
         final String location = "testFlushAtEndOfBatch";
         assertFalse(lines.get(0).contains(location), "no location");
